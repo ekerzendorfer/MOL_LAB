@@ -1,13 +1,13 @@
 # ==========================================
-# ⚛️ MOLEKÜLLABOR — STABLE + UI TUNING (v3)
-# Fixes:
-# - Surface erscheint am selben Platz (out_3d wird vorher geleert)
-# - Zoom weniger stark + auf Torsionsachse (j-k) zentriert
-# - Achse markieren + moderater Zoom auf j-k
+# ⚛️ MOL_LAB — Moleküllabor (v2 + Enhancements)
 # ==========================================
 
 import subprocess, sys, io, os, base64, math, time, shutil, stat
 
+APP_VERSION = "MOL_LAB v2.1 (2026-01-24)"
+APP_CREDIT  = "Erstellt von Erich Kerzendorfer mit ChatGPT"
+
+# ---- Minimaler Import/Install-Helper ----
 def _ensure_import(pkg, pip_name=None):
     try:
         __import__(pkg)
@@ -46,7 +46,7 @@ class MoleculeApp:
         self.mol_xtb  = None
 
         # Cache für Overlay & Torsion
-        self._cmp_cache = None     # (m1, m2, max_d)  (ohne H, m2 aligned)
+        self._cmp_cache = None     # (m1, m2, max_d) (ohne H, m2 aligned)
         self._max_torsion = None   # (i,j,k,l)
 
         # Beispiele
@@ -71,7 +71,7 @@ class MoleculeApp:
         self.OVERLAY_STICK_RADIUS = 0.18
         self.SURFACE_OPACITY = 0.55
 
-        # Zoom-Tuning (moderater als vorher)
+        # Zoom: moderat, auf Achse zentriert
         self.ZOOM_FACTOR_AXIS = 1.85
 
         # Konformer / Optimierung
@@ -81,6 +81,8 @@ class MoleculeApp:
 
         # ---------------- UI ----------------
         style = {'description_width': 'initial'}
+
+        self.info_box = widgets.HTML()
 
         self.dd_example = widgets.Dropdown(
             options=list(self.examples.keys()),
@@ -110,6 +112,21 @@ class MoleculeApp:
             indent=False,
             layout=Layout(width="98%")
         )
+
+        # 3D Darstellungsmodus (nicht für Overlay)
+        self.view_mode = widgets.ToggleButtons(
+            options=[("Ball & Stick", "ballstick"), ("Spacefill", "spacefill")],
+            value="ballstick",
+            description="3D:",
+            style={'description_width': 'initial'},
+            layout=Layout(width="98%")
+        )
+
+        def _on_view_mode_change(change):
+            if self.mol is not None:
+                # nur normale Ansicht neu rendern
+                self.show_mol()
+        self.view_mode.observe(_on_view_mode_change, names="value")
 
         # Buttons (schmäler, für Grid)
         b = dict(layout=Layout(width="100%"))
@@ -150,6 +167,26 @@ class MoleculeApp:
         self.btn_pdb.on_click(self.save_pdb)
         self.btn_html.on_click(self.save_3d_html)
 
+        # Info-Box initial befüllen
+        self._refresh_info_box()
+        self.log(f"ℹ️ {APP_VERSION}")
+
+        # --- START-Parameter aus Launcher übernehmen (falls gesetzt) ---
+        try:
+            start_smiles = globals().get("MOLLAB_START_SMILES", None)
+            start_name   = globals().get("MOLLAB_START_NAME", None)
+            auto_load_2d = globals().get("MOLLAB_AUTO_LOAD_2D", False)
+
+            if start_smiles:
+                self.input_smiles.value = str(start_smiles).strip()
+            if start_name:
+                self.input_name.value = str(start_name).strip()
+
+            if auto_load_2d and start_smiles:
+                self.load_2d(None)
+        except Exception:
+            pass
+
     # ---------- Logging ----------
     def log(self, txt):
         with self.out_log:
@@ -158,6 +195,38 @@ class MoleculeApp:
     def clear_3d(self):
         self.out_3d.clear_output()
         self._viewer = None
+
+    # ---------- Status / Info Box ----------
+    def _rdkit_status(self):
+        try:
+            import rdkit
+            path = getattr(rdkit, "__file__", "") or ""
+            src = "pip"
+            if "/content/rdkit_prefix" in path or "/conda" in path or "/mamba" in path:
+                src = "conda-forge (micromamba)"
+            ver = getattr(rdkit, "__version__", "unknown")
+            return f"RDKit: {ver} • {src}"
+        except Exception:
+            return "RDKit: ❌ nicht geladen"
+
+    def _xtb_status(self):
+        if os.path.exists("/content/xtb_prefix/bin/xtb"):
+            return "xTB (GFN2): ✅ verfügbar"
+        return "xTB (GFN2): ⏳ nicht installiert (erst nach Adv xTB)"
+
+    def _refresh_info_box(self):
+        rd = self._rdkit_status()
+        xt = self._xtb_status()
+        self.info_box.value = f"""
+        <div style="
+            border:1px solid #ddd; border-radius:10px; padding:10px;
+            background:#fafafa; font-size:12px; line-height:1.35;">
+          <div style="font-weight:700;">{APP_VERSION}</div>
+          <div style="color:#555;">{APP_CREDIT}</div>
+          <div style="margin-top:6px;">{rd}</div>
+          <div>{xt}</div>
+        </div>
+        """
 
     # ---------- Example ----------
     def on_example_change(self, change):
@@ -178,7 +247,10 @@ class MoleculeApp:
         return drawer.GetDrawingText()
 
     def load_2d(self, b):
+        # Log leeren ist für Unterricht oft angenehm
         self.out_log.clear_output()
+
+        # 3D-Fenster leeren, damit klar ist: wir starten neu
         self.clear_3d()
 
         smi = self.input_smiles.value.strip()
@@ -188,6 +260,10 @@ class MoleculeApp:
 
         self.mol_2d = Chem.Mol(mol)
         self.mol = None
+        self.mol_mmff = None
+        self.mol_xtb  = None
+        self._cmp_cache = None
+        self._max_torsion = None
 
         self.out_2d.clear_output()
         self.last_2d_svg = self.draw_2d_svg(self.mol_2d)
@@ -195,6 +271,7 @@ class MoleculeApp:
             display(SVG(self.last_2d_svg))
 
         self.log("✅ 2D-Struktur geladen.")
+        self._refresh_info_box()
 
     # ---------- 3D ----------
     def make_3d(self, b):
@@ -265,6 +342,21 @@ class MoleculeApp:
         w.close()
         return buf.getvalue()
 
+    def _apply_style_normal(self, v):
+        """Style für normale 3D-Ansichten (nicht Overlay)"""
+        mode = getattr(self, "view_mode", None)
+        mode = mode.value if mode else "ballstick"
+
+        if mode == "spacefill":
+            # Spacefill: Kugeln im VDW-Stil (ohne Sticks)
+            v.setStyle({'sphere': {'scale': 1.0}})
+        else:
+            # Ball & Stick
+            v.setStyle({
+                'stick':  {'radius': self.STICK_RADIUS},
+                'sphere': {'scale': self.SPHERE_SCALE}
+            })
+
     def show_mol(self):
         if self.mol is None:
             return
@@ -275,10 +367,8 @@ class MoleculeApp:
         m = self.mol if self.chk_show_h.value else Chem.RemoveHs(self.mol)
         v.addModel(self._mol_to_sdf(m), "sdf")
 
-        v.setStyle({
-            'stick':  {'radius': self.STICK_RADIUS},
-            'sphere': {'scale': self.SPHERE_SCALE}
-        })
+        self._apply_style_normal(v)
+
         v.zoomTo()
         v.setBackgroundColor("white")
 
@@ -291,7 +381,7 @@ class MoleculeApp:
         if self.mol is None:
             return self.log("⚠️ Kein Molekül.")
 
-        # FIX: Anzeige im selben Fenster/Platz
+        # Wichtig: an derselben Stelle rendern
         self.clear_3d()
 
         try:
@@ -302,10 +392,8 @@ class MoleculeApp:
         v = py3Dmol.view(width="100%", height=950)
         v.addModel(self._mol_to_sdf(self.mol), "sdf")
 
-        v.setStyle({
-            'stick':  {'radius': self.STICK_RADIUS},
-            'sphere': {'scale': self.SPHERE_SCALE}
-        })
+        # Darstellung je nach Modus
+        self._apply_style_normal(v)
 
         v.addSurface(py3Dmol.VDW, {
             'opacity': self.SURFACE_OPACITY,
@@ -394,6 +482,7 @@ class MoleculeApp:
         try:
             prefix = self._ensure_xtb_prefix()
         except Exception as e:
+            self._refresh_info_box()
             return self.log(f"❌ xTB Setup fehlgeschlagen: {e}")
 
         xtb = os.path.join(prefix, "bin", "xtb")
@@ -408,6 +497,7 @@ class MoleculeApp:
 
         opt_xyz = os.path.join(workdir, "xtbopt.xyz")
         if res.returncode != 0 or not os.path.exists(opt_xyz):
+            self._refresh_info_box()
             return self.log("❌ xTB Lauf fehlgeschlagen (keine xtbopt.xyz).")
 
         coords = self._read_xyz(opt_xyz)
@@ -419,9 +509,10 @@ class MoleculeApp:
         self.mol_xtb = Chem.Mol(self.mol)
 
         self.log("✅ xTB Optimierung übernommen.")
+        self._refresh_info_box()
         self.show_mol()
 
-    # ---------- Vergleich (Overlay als Stabmodell) ----------
+    # ---------- Vergleich (Overlay bewusst als Stick) ----------
     def compare_mmff_xtb(self, b):
         if self.mol_mmff is None or self.mol_xtb is None:
             return self.log("⚠️ Erst MMFF/UFF und danach xTB rechnen.")
@@ -506,6 +597,7 @@ class MoleculeApp:
         self.clear_3d()
         v = py3Dmol.view(width="100%", height=950)
 
+        # Overlay bleibt Stick (didaktisch)
         v.addModel(self._mol_to_sdf(m1), "sdf")
         v.setStyle({'model': 0}, {'stick': {'radius': self.OVERLAY_STICK_RADIUS, 'colorscheme': 'cyanCarbon'}})
 
@@ -616,10 +708,12 @@ class MoleculeApp:
 
         left = widgets.VBox([
             widgets.HTML("<h3>⚛️ Moleküllabor</h3>"),
+            self.info_box,
             self.dd_example,
             self.input_smiles,
             self.input_name,
             self.chk_show_h,
+            self.view_mode,
             widgets.HTML("<b>Aktionen</b>"),
             btn_grid,
             widgets.HTML("<b>2D-Struktur</b>"),
@@ -635,25 +729,7 @@ class MoleculeApp:
 
         display(widgets.HBox([left, right]))
 
-        # --- START-Parameter aus dem Launcher-Notebook übernehmen (falls gesetzt) ---
-        try:
-            start_smiles = globals().get("MOLLAB_START_SMILES", None)
-            start_name   = globals().get("MOLLAB_START_NAME", None)
-            auto_load_2d = globals().get("MOLLAB_AUTO_LOAD_2D", False)
-
-            if start_smiles:
-                self.input_smiles.value = str(start_smiles).strip()
-            if start_name:
-                self.input_name.value = str(start_name).strip()
-
-            # Optional: automatisch 2D laden (ohne Buttonklick)
-            if auto_load_2d and start_smiles:
-                self.load_2d(None)
-        except Exception:
-            pass
-
 
 # START
 app = MoleculeApp()
 app.render()
-
