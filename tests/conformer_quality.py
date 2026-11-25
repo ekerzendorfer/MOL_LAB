@@ -95,6 +95,22 @@ assert all(test.confs[i]["E"]<=test.confs[i+1]["E"] for i in range(len(test.conf
 print("Hexan broad min search:",len(test.confs),
       [round(c["dE"],2) for c in test.confs])
 
+# The selection modes MUST differ when enough distinct minima exist:
+# energy mode retains the ten lowest; spread mode includes a higher one.
+lowest=Dummy("CCCCCC")
+lowest.conf_energy_window.value=35.0
+lowest.conf_sampling.value=240
+lowest.conf_selection.value="energy"
+compute(lowest,None)
+assert len(lowest.confs)==10
+assert max(c["dE"] for c in test.confs) > max(
+    c["dE"] for c in lowest.confs
+) + 0.5,(test.confs[-1]["dE"],lowest.confs[-1]["dE"])
+assert test.confs[0]["dE"]==lowest.confs[0]["dE"]==0.0
+print("Hexan: energy vs spread selects different ranges:",
+      round(lowest.confs[-1]["dE"],2),
+      round(test.confs[-1]["dE"],2))
+
 notebook=json.loads((root/"MOL_LAB.ipynb").read_text(encoding="utf-8"))
 code="".join(notebook["cells"][1]["source"])
 assert 'try_download("fix-konformere-postopt-rms")' in code
