@@ -67,7 +67,8 @@ c=run("C1CCCCC1")
 # Chair and twist-boat minima occur; the boat/half-chair remain absent.
 assert c.confs[0]["dE"]==0.0
 assert c.confs[0]["ring_label"]=="Sessel"
-assert any(x["ring_label"]=="Twist-Boat" for x in c.confs)
+assert any(x["ring_label"].startswith("Twist-Boat") for x in c.confs)
+assert sum("Twist-Boat · Variante" in x["ring_label"] for x in c.confs)==2
 assert any("Twist-Boat" in str(option[0]) for option in c.dd_conf_a.options)
 
 assert max(x["dE"] for x in c.confs)>3.0

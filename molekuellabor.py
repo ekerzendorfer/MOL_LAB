@@ -1251,6 +1251,20 @@ class MoleculeApp:
                     ring_label = "weitere Ringform"
             confs.append({"mol": m, "E": float(E), "dE": float(E - Emin),
                           "ring_label": ring_label})
+        if cyclohexane:
+            # The two equivalent-energy twist-boat minima are opposite
+            # conformational variants, not accidental duplicate structures.
+            twist_count = 0
+            for item in confs:
+                if item["ring_label"] == "Twist-Boat":
+                    twist_count += 1
+                    item["ring_label"] = (
+                        f"Twist-Boat · Variante {chr(64 + twist_count)}"
+                    )
+            if twist_count >= 2:
+                self.log("ℹ️ Cyclohexan: Gleichenergetische Twist-Boat-"
+                         "Varianten A/B können spiegelbildlich zueinander "
+                         "sein; ihre Ringgeometrien unterscheiden sich.")
         self.confs = confs
         self.log(f"✅ ETKDG: {len(conf_ids)} Starts, {len(scored)} optimiert, "
                  f"{len(distinct)} verschiedene Minima erkannt, "
