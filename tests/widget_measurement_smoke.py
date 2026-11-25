@@ -17,8 +17,11 @@ code=(root/"molekuellabor.py").read_text(encoding="utf-8")
 tree=ast.parse(code)
 members=[x for x in tree.body
          if isinstance(x,ast.ClassDef) and x.name=="MoleculeApp"
-         or isinstance(x,ast.FunctionDef) and x.name=="calculate_geometry_measurement"]
-assert len(members)==2
+         or isinstance(x,ast.FunctionDef) and x.name=="calculate_geometry_measurement"
+         or (isinstance(x,ast.Assign) and any(
+             isinstance(target,ast.Name) and target.id=="WORKSHOP_EXAMPLES"
+             for target in x.targets))]
+assert len(members)==3
 
 class Viewer:
     def __init__(self):
@@ -58,6 +61,24 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=members,type_ignores=[]))
 with contextlib.redirect_stdout(io.StringIO()):
     app=ctx["MoleculeApp"]()
     app.render()
+workshop=ctx["WORKSHOP_EXAMPLES"]
+assert len(workshop)==12
+assert len({x["smiles"] for x in workshop})==12
+assert all(Chem.MolFromSmiles(x["smiles"]) for x in workshop)
+assert len(app.examples)==17,app.examples.keys()
+example_smiles=[x["smiles"] for x in app.examples.values()]
+assert len(example_smiles)==len(set(example_smiles))
+assert {x["smiles"] for x in workshop}.issubset(set(example_smiles))
+assert all(name in [x["name"] for x in app.examples.values()]
+           for name in ("Ethanol","Dimethylether","Schwefelwasserstoff",
+                        "Propanal","Aceton","Cyclohexan","Benzol","Koffein"))
+# A preselected molecule from MW-024 stays an editable dropdown choice.
+cyclo_key=next(k for k,v in app.examples.items()
+               if v["smiles"]=="C1CCCCC1")
+app.dd_example.value=cyclo_key
+assert app.input_name.value=="Cyclohexan"
+assert app.input_smiles.value=="C1CCCCC1"
+assert app.examples["Konformer-Training · n-Hexan"]["smiles"]=="CCCCCC"
 assert app.measure_accordion.selected_index is None
 assert app.measure_panel in app.measure_accordion.children
 assert app.measure_accordion in shown[-1].children[1].children, "must be in wide right column"

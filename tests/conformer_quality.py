@@ -72,7 +72,13 @@ assert sum("Twist-Boat · Variante" in x["ring_label"] for x in c.confs)==2
 assert any("Twist-Boat" in str(option[0]) for option in c.dd_conf_a.options)
 
 assert max(x["dE"] for x in c.confs)>3.0
-run("CCCC")
+assert "Warum nicht mehr?" in c.conf_summary.value
+assert "zwei gleichenergetische" in c.conf_summary.value
+b=run("CCCC")
+assert sorted(x["ring_label"] for x in b.confs)==[
+    "anti","gauche (+)","gauche (−)"
+]
+assert "zwei Energiegruppen" in b.conf_summary.value
 run("ClCCCl")
 
 
