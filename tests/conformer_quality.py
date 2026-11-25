@@ -39,6 +39,8 @@ class Dummy:
         self.msg.append(msg)
     def show_conformer_view(self,_):
         self.view_count+=1
+    def _refresh_measure_sources(self):
+        pass  # UI-only callback, unrelated to the pure RDKit test
 
 def run(smiles):
     dummy=Dummy(smiles)
