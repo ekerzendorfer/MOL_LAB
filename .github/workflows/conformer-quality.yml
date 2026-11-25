@@ -1,0 +1,19 @@
+name: MOL_LAB conformer quality
+
+on:
+  push:
+    branches: [main, fix-konformere-postopt-rms]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conformer-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install RDKit
+        run: python3 -m pip install --disable-pip-version-check rdkit
+      - name: Check postoptimization uniqueness, cyclohexane and molecular examples
+        run: python3 tests/conformer_quality.py

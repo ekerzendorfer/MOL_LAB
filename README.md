@@ -28,3 +28,11 @@ Dieses Notebook zeigt, wie aus einer **2D-Struktur (SMILES)** ein **3D-Molekül*
 PNG-Screenshots aus WebGL können in Colab manchmal leer sein.
 → Nutze **3D-HTML Export**, öffne die HTML lokal und mache dann einen Screenshot.
 
+
+### Konformersuche: geometrische Duplikate vermeiden (Entwicklungsbranch, 25.11.2026)
+
+Die bisherige Einstellung `ETKDG.pruneRmsThresh = 0.75` verwarf möglicherweise unterschiedliche Startkonformationen vor der Energieminimierung. Anschließend wurden die energieärmsten zehn Kandidaten auch dann ausgegeben, wenn sie nach MMFF-Optimierung dieselbe Geometrie besaßen. Im Entwicklungsbranch `fix-konformere-postopt-rms` wird zuerst eine vollständige Stichprobe eingebettet (`pruneRmsThresh = -1`) und minimiert; erst danach werden maximal zehn **geometrisch verschiedene lokale Minima** mittels symmetrieberücksichtigendem Schweratom-RMSD (Grenze 0,30 Å) ausgewählt.
+
+Bei Cyclohexan findet die normale Minimasuche insbesondere Sessel und ggf. Twist-Boat; **Wanne und Halbsessel** sind keine stabilen Minima und werden damit nicht automatisch gefunden. Für einen **gezielten Vergleich aller vier Ringformen** sollte DIDACTIC V0.8 verwendet werden. Zwei Ergebnisse mit gleicher Energie können räumlich unterschiedlich sein; identische Geometrien sollen aber nicht als verschiedene Treffer ausgegeben werden. Beim Overlay einer zweimal ausgewählten Konformer-Nummer wird kein irreführender Vergleich mehr angezeigt.
+
+**Entwicklungs-Notebook (lädt bewusst den Code dieses Branches):** https://colab.research.google.com/github/ekerzendorfer/MOL_LAB/blob/fix-konformere-postopt-rms/MOL_LAB.ipynb . Das stabile Notebook auf `main` bleibt bis zur Abnahme unverändert.
