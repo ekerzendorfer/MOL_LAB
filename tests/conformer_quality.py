@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdMolAlign
+from rdkit.Chem import AllChem, rdMolAlign, rdMolTransforms
 
 root=Path(__file__).resolve().parents[1]
 source=(root/"molekuellabor.py").read_text(encoding="utf-8")
@@ -16,7 +16,7 @@ klass=next(x for x in tree.body if isinstance(x,ast.ClassDef) and x.name=="Molec
 method=next(x for x in klass.body if isinstance(x,(ast.FunctionDef,ast.AsyncFunctionDef))
             and x.name=="compute_conformers")
 module=ast.fix_missing_locations(ast.Module(body=[method],type_ignores=[]))
-ctx={"Chem":Chem,"AllChem":AllChem,"rdMolAlign":rdMolAlign,"time":time}
+ctx={"Chem":Chem,"AllChem":AllChem,"rdMolAlign":rdMolAlign,"rdMolTransforms":rdMolTransforms,"time":time}
 exec(compile(module,str(root/"molekuellabor.py"),"exec"),ctx)
 compute=ctx["compute_conformers"]
 
@@ -60,6 +60,10 @@ def run(smiles):
 c=run("C1CCCCC1")
 # Chair and twist-boat minima occur; the boat/half-chair remain absent.
 assert c.confs[0]["dE"]==0.0
+assert c.confs[0]["ring_label"]=="Sessel"
+assert any(x["ring_label"]=="Twist-Boat" for x in c.confs)
+assert any("Twist-Boat" in str(option[0]) for option in c.dd_conf_a.options)
+
 assert max(x["dE"] for x in c.confs)>3.0
 run("CCCC")
 run("ClCCCl")

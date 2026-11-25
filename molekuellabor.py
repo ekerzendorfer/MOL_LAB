@@ -34,7 +34,7 @@ install("py3Dmol")
 install("ipywidgets")
 
 from rdkit import Chem
-from rdkit.Chem import AllChem, Descriptors, Crippen, rdMolAlign
+from rdkit.Chem import AllChem, Descriptors, Crippen, rdMolAlign, rdMolTransforms
 from rdkit.Chem import rdDepictor
 from rdkit.Chem.Draw import rdMolDraw2D
 
@@ -942,12 +942,26 @@ class MoleculeApp:
             return self.log("❌ Nach MMFF wurden keine Konformer-Minima gefunden.")
         Emin = distinct[0][0]
         confs = []
+        cyclohexane = (Chem.MolToSmiles(base_noh) == "C1CCCCC1")
         for E, cid in distinct:
             m = Chem.Mol(molH)
             c = molH.GetConformer(cid)
             m.RemoveAllConformers()
             m.AddConformer(Chem.Conformer(c), assignId=True)
-            confs.append({"mol": m, "E": float(E), "dE": float(E - Emin)})
+            ring_label = ""
+            if cyclohexane:
+                # Six ring-carbon dihedrals identify chair versus twist.
+                tors = [abs(rdMolTransforms.GetDihedralDeg(
+                    m.GetConformer(), i, (i+1)%6, (i+2)%6, (i+3)%6
+                )) for i in range(6)]
+                if min(tors) > 45.0:
+                    ring_label = "Sessel"
+                elif 15.0 < min(tors) < 40.0 and max(tors) > 45.0:
+                    ring_label = "Twist-Boat"
+                else:
+                    ring_label = "weitere Ringform"
+            confs.append({"mol": m, "E": float(E), "dE": float(E - Emin),
+                          "ring_label": ring_label})
         self.confs = confs
         self.log(f"✅ ETKDG: {len(conf_ids)} Starts, {len(scored)} optimiert, "
                  f"{len(confs)} geometrisch verschiedene Minima (Emin={Emin:.2f} kcal/mol)")
@@ -957,14 +971,18 @@ class MoleculeApp:
         else:
             self.log("ℹ️ Gleiche Energiewerte bedeuten nicht zwingend gleiche "
                      "3D-Geometrie; die Auswahl ist RMSD-geprüft.")
-        if Chem.MolToSmiles(Chem.RemoveHs(Chem.Mol(self.mol_2d))) == "C1CCCCC1":
-            self.log("ℹ️ Bei Cyclohexan erfasst MOL_LAB nur gefundene Minima, "
+        if cyclohexane:
+            self.log("🌀 Cyclohexan-Minima: " + ", ".join(
+                f"{d['ring_label']} (ΔE={d['dE']:.2f})" for d in confs
+            ))
+            self.log("ℹ️ MOL_LAB erfasst Minima (Sessel und ggf. Twist-Boat), "
                      "nicht Wanne/Halbsessel als Übergangsreferenzen. "
-                     "Für die vier Lehrbuchformen: DIDACTIC V0.8.")
+                     "Für alle vier Ringformen: DIDACTIC V0.8.")
 
         opts = []
         for i, d in enumerate(confs, start=1):
-            opts.append((f"{i}: E={d['E']:.2f}  ΔE={d['dE']:.2f} kcal/mol", i-1))
+            kind = (f" · {d['ring_label']}" if d.get("ring_label") else "")
+            opts.append((f"{i}: E={d['E']:.2f}  ΔE={d['dE']:.2f} kcal/mol{kind}", i-1))
 
         self.dd_conf_a.options = opts
         self.dd_conf_b.options = opts
