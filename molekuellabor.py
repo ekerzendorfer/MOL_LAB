@@ -287,7 +287,7 @@ class MoleculeApp:
         )
         self.conf_selection = widgets.Dropdown(
             options=[("Energetisch niedrigste Minima", "energy"),
-                     ("Vielfalt über das Energiefenster", "spread")],
+                     ("Vielfalt über das Energiefenster (ab >10 Minima)", "spread")],
             value="spread", description="Auswahl:",
             style=style, layout=Layout(width='98%')
         )
@@ -1300,13 +1300,25 @@ class MoleculeApp:
         if not distinct:
             return self.log("❌ Keine geometrisch verschiedenen Minima gefunden.")
         if selection_mode == "spread" and len(distinct) > 10:
-            # Energy-stratified selection: always retain the best minimum,
-            # then sample the full observed energy range.
-            positions = sorted(set(
-                round(i * (len(distinct) - 1) / 9) for i in range(10)
-            ))
-            chosen = [distinct[i] for i in positions]
+            # Select representative values distributed over *energy*,
+            # not merely over the candidate rank. Always keep E_min/E_max.
+            energies = [row[0] for row in distinct]
+            n = 10
+            positions = {0, len(distinct)-1}
+            for slot in range(1, n-1):
+                target = energies[0] + (
+                    (energies[-1]-energies[0]) * slot / (n-1)
+                )
+                candidate = min(
+                    (i for i in range(1,len(distinct)-1)
+                     if i not in positions),
+                    key=lambda i: (abs(energies[i]-target), i)
+                )
+                positions.add(candidate)
+            chosen = [distinct[i] for i in sorted(positions)]
         else:
+            # At <=10 distinct minima ALL are already included.
+            # A selection mode cannot create additional local minima.
             chosen = distinct[:10]
         self.log(
             f"🔬 Im Energiefenster bis +{energy_window:.1f} kcal/mol "
@@ -1315,7 +1327,9 @@ class MoleculeApp:
         )
         Emin = distinct[0][0]
         confs = []
-        cyclohexane = (Chem.MolToSmiles(base_noh) == "C1CCCCC1")
+        simple_smiles = Chem.MolToSmiles(base_noh)
+        cyclohexane = simple_smiles == "C1CCCCC1"
+        butane = simple_smiles == "CCCC"
         for E, cid in chosen:
             m = Chem.Mol(molH)
             c = molH.GetConformer(cid)
@@ -1333,6 +1347,17 @@ class MoleculeApp:
                     ring_label = "Twist-Boat"
                 else:
                     ring_label = "weitere Ringform"
+            elif butane:
+                # Mirror-related gauche conformers have equal energy but
+                # opposite signed 1-2-3-4 torsion angles.
+                torsion = rdMolTransforms.GetDihedralDeg(
+                    m.GetConformer(), 0, 1, 2, 3
+                )
+                if abs(torsion) > 140.0:
+                    ring_label = "anti"
+                else:
+                    ring_label = ("gauche (+)" if torsion > 0
+                                  else "gauche (−)")
             confs.append({"mol": m, "E": float(E), "dE": float(E - Emin),
                           "ring_label": ring_label})
         if cyclohexane:
@@ -1354,14 +1379,47 @@ class MoleculeApp:
                  f"{len(distinct)} verschiedene Minima erkannt, "
                  f"{len(confs)} angezeigt (Emin={Emin:.2f} kcal/mol)")
         if hasattr(self, "conf_summary"):
+            note = ""
+            if len(distinct) <= 10 and selection_mode == "spread":
+                note = (
+                    "<p><b>Warum nicht mehr?</b> Es wurden nur "
+                    f"{len(distinct)} geometrisch verschiedene lokale "
+                    "Minima gefunden. Da alle bereits angezeigt werden, "
+                    "liefert der Auswahlmodus hier keine weiteren Formen. "
+                    "Ein größeres Energiefenster kann nur zusätzliche "
+                    "<i>existierende</i> Minima berücksichtigen.</p>"
+                )
+                self.log(
+                    f"ℹ️ Modus Vielfalt: {len(distinct)} Minima gefunden, "
+                    "alle bereits angezeigt. Zusätzliche Startgeometrien "
+                    "oder ein anderes Molekül (z. B. n-Hexan) sind "
+                    "für eine größere Vielfalt sinnvoller."
+                )
+            if cyclohexane:
+                note += (
+                    "<p><b>Cyclohexan:</b> Sessel und zwei gleichenergetische "
+                    "Twist-Boat-Varianten A/B. Das sind zwei "
+                    "Energieminimum-Familien; Wanne/Halbsessel sind keine "
+                    "weiteren Minima. Die vier didaktischen Formen "
+                    "finden sich in DIDACTIC V0.8.</p>"
+                )
+            elif butane:
+                note += (
+                    "<p><b>Butan:</b> ein anti-Minimum und zwei "
+                    "gleichenergetische gauche-Varianten (+/−). "
+                    "Es sind damit zwei Energiegruppen, aber drei "
+                    "räumliche Minima. Für eine größere Konformerenvielfalt "
+                    "empfiehlt sich n-Pentan oder n-Hexan.</p>"
+                )
             self.conf_summary.value = (
-                "<small><b>Ergebnis:</b> "
+                "<div style='font-size:12px;line-height:1.5;'>"
+                "<b>Konformersuche:</b> "
                 f"{len(scored)} Kandidaten minimiert, "
                 f"{len(distinct)} unterschiedliche Minima im Fenster "
                 f"ΔE ≤ {energy_window:.1f} kcal/mol, "
                 f"{len(confs)} ausgewählt. "
-                "Höhere Energien sind weiterhin Minima, keine "
-                "Übergangszustände.</small>"
+                "Höhere Energien sind weiterhin lokale Minima, keine "
+                "Übergangszustände." + note + "</div>"
             )
         if len(confs) == 1:
             self.log("ℹ️ Nur ein verschiedenes Energieminimum gefunden. "
