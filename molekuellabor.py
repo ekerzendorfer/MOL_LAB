@@ -145,7 +145,31 @@ class MoleculeApp:
         self.conf_ff = None
         self.conf_meta = {}
 
-        self.btn_conf = widgets.Button(description="Konformationen (≤10)", icon='layers', layout=l_btn)
+        self.conf_sampling = widgets.Dropdown(
+            options=[("60 Starts · schnell", 60),
+                     ("120 Starts · breiter", 120),
+                     ("240 Starts · intensiv", 240)],
+            value=120, description="Startgeometrien:",
+            style=style, layout=Layout(width='98%')
+        )
+        self.conf_energy_window = widgets.FloatSlider(
+            value=15.0, min=2.0, max=40.0, step=1.0,
+            description="Energiefenster ΔE (kcal/mol):",
+            readout_format='.0f', style=style, layout=Layout(width='98%')
+        )
+        self.conf_selection = widgets.Dropdown(
+            options=[("Energetisch niedrigste Minima", "energy"),
+                     ("Vielfalt über das Energiefenster", "spread")],
+            value="spread", description="Auswahl:",
+            style=style, layout=Layout(width='98%')
+        )
+        self.conf_summary = widgets.HTML(
+            "<small>Zuerst werden die Kandidaten minimiert, dann "
+            "ähnliche Geometrien entfernt. Maximal zehn Ergebnisse.</small>"
+        )
+        self.btn_conf = widgets.Button(
+            description="Konformationen (≤10)", icon='layers', layout=l_btn
+        )
         self.dd_conf_a = widgets.Dropdown(options=[], description="Konformer A:", layout=Layout(width='98%'), style=style)
         self.dd_conf_b = widgets.Dropdown(options=[], description="Konformer B:", layout=Layout(width='98%'), style=style)
         self.conf_view_mode = widgets.ToggleButtons(
@@ -156,10 +180,12 @@ class MoleculeApp:
             layout=Layout(width='98%')
         )
 
-        self.conf_panel = widgets.VBox(
-            [self.btn_conf, self.dd_conf_a, self.dd_conf_b, self.conf_view_mode],
-            layout=Layout(width='98%', display='none')
-        )
+        self.conf_panel = widgets.VBox([
+            widgets.HTML("<b>Konformersuche · lokale Energieminima</b>"),
+            self.conf_sampling, self.conf_energy_window, self.conf_selection,
+            self.btn_conf, self.conf_summary,
+            self.dd_conf_a, self.dd_conf_b, self.conf_view_mode
+        ], layout=Layout(width='98%', display='none'))
 
         # Exporte + Screenshots
         self.btn_sdf = widgets.Button(description="SDF Export", icon='download', layout=Layout(width='48%'))
@@ -876,8 +902,21 @@ class MoleculeApp:
         # Die ETKDG-Vorabfilterung könnte verschiedene Minima (u. a. Ringe)
         # verwerfen, bevor wir überhaupt deren Energien vergleichen.
 
-        num_raw = 60
-        conf_ids = list(AllChem.EmbedMultipleConfs(molH, numConfs=num_raw, params=params))
+        num_raw = int(getattr(getattr(self, "conf_sampling", None),
+                              "value", 120))
+        if meta.get("heavy_atoms", base_noh.GetNumHeavyAtoms()) > 18 and num_raw > 120:
+            num_raw = 120
+            self.log("ℹ️ Bei größeren Molekülen maximal 120 Starts "
+                     "zum Schutz vor langen Laufzeiten.")
+        energy_window = float(getattr(
+            getattr(self, "conf_energy_window", None), "value", 15.0
+        ))
+        selection_mode = getattr(
+            getattr(self, "conf_selection", None), "value", "spread"
+        )
+        conf_ids = list(AllChem.EmbedMultipleConfs(
+            molH, numConfs=num_raw, params=params
+        ))
         if not conf_ids:
             return self.log("❌ Keine Konformere erzeugt (Embedding fehlgeschlagen).")
 
@@ -906,44 +945,58 @@ class MoleculeApp:
             return self.log("❌ Konformer-Scoring fehlgeschlagen.")
 
         scored.sort(key=lambda x: x[0])
-        # Deduplicate AFTER minimisation, using symmetry-aware heavy-atom
-        # RMSD. The ten lowest-energy raw candidates can otherwise all
-        # collapse onto the same minimum (especially cyclohexane).
+        Emin_global = scored[0][0]
+        energy_limit = Emin_global + max(0.0, energy_window)
+        # Minimise first, then deduplicate using symmetry-aware heavy-atom
+        # RMSD. Retain more distinct candidates than final output so the
+        # "spread" mode can include higher-lying MINIMA, not just the ten
+        # lowest ones. It does NOT construct saddle geometries.
         heavy_only = Chem.RemoveHs(molH)
         distinct = []
         for E, cid in scored:
+            if E > energy_limit + 1e-7:
+                break
             already_seen = False
             for previous_energy, previous_id in distinct:
                 try:
-                    # Work on the heavy-only copy; GetBestRMS may align
-                    # its probe conformer, not the original molH geometry.
                     rms = rdMolAlign.GetBestRMS(
                         heavy_only, heavy_only, prbId=cid, refId=previous_id,
                         maxMatches=128
                     )
-                    if rms < 0.30:
-                        already_seen = True
-                        break
                 except Exception:
-                    # Conservative fallback: aligned RMSD with fixed atom map.
                     probe = Chem.Mol(heavy_only)
                     rms = rdMolAlign.AlignMol(
                         probe, heavy_only, prbCid=cid, refCid=previous_id
                     )
-                    if rms < 0.30:
-                        already_seen = True
-                        break
+                if rms < 0.30:
+                    already_seen = True
+                    break
             if not already_seen:
                 distinct.append((E, cid))
-            if len(distinct) >= 10:
+            if len(distinct) >= 60:
+                self.log("ℹ️ Vergleich auf 60 unterschiedliche Kandidaten begrenzt.")
                 break
 
         if not distinct:
-            return self.log("❌ Nach MMFF wurden keine Konformer-Minima gefunden.")
+            return self.log("❌ Keine geometrisch verschiedenen Minima gefunden.")
+        if selection_mode == "spread" and len(distinct) > 10:
+            # Energy-stratified selection: always retain the best minimum,
+            # then sample the full observed energy range.
+            positions = sorted(set(
+                round(i * (len(distinct) - 1) / 9) for i in range(10)
+            ))
+            chosen = [distinct[i] for i in positions]
+        else:
+            chosen = distinct[:10]
+        self.log(
+            f"🔬 Im Energiefenster bis +{energy_window:.1f} kcal/mol "
+            f"{len(distinct)} verschiedene Minima gefunden; "
+            f"{len(chosen)} nach Modus '{selection_mode}' ausgewählt."
+        )
         Emin = distinct[0][0]
         confs = []
         cyclohexane = (Chem.MolToSmiles(base_noh) == "C1CCCCC1")
-        for E, cid in distinct:
+        for E, cid in chosen:
             m = Chem.Mol(molH)
             c = molH.GetConformer(cid)
             m.RemoveAllConformers()
@@ -964,7 +1017,18 @@ class MoleculeApp:
                           "ring_label": ring_label})
         self.confs = confs
         self.log(f"✅ ETKDG: {len(conf_ids)} Starts, {len(scored)} optimiert, "
-                 f"{len(confs)} geometrisch verschiedene Minima (Emin={Emin:.2f} kcal/mol)")
+                 f"{len(distinct)} verschiedene Minima erkannt, "
+                 f"{len(confs)} angezeigt (Emin={Emin:.2f} kcal/mol)")
+        if hasattr(self, "conf_summary"):
+            self.conf_summary.value = (
+                "<small><b>Ergebnis:</b> "
+                f"{len(scored)} Kandidaten minimiert, "
+                f"{len(distinct)} unterschiedliche Minima im Fenster "
+                f"ΔE ≤ {energy_window:.1f} kcal/mol, "
+                f"{len(confs)} ausgewählt. "
+                "Höhere Energien sind weiterhin Minima, keine "
+                "Übergangszustände.</small>"
+            )
         if len(confs) == 1:
             self.log("ℹ️ Nur ein verschiedenes Energieminimum gefunden. "
                      "Ein zweiter identischer Treffer wäre kein sinnvoller Vergleich.")
