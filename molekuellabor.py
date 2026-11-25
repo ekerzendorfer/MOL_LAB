@@ -44,6 +44,76 @@ from ipywidgets import Layout
 from IPython.display import display, SVG
 from google.colab import files
 
+# Snapshot der kuratierten MOLEKÜL-WERKSTATT-Daten (Stand 25.11.2026):
+# learning_paths[].molecules + free_examples aus
+# ekerzendorfer/MOLEKUELWERKSTATT/data/learning_paths.json.
+# Namen und SMILES werden hier bewusst als lokale Kopie mit MOL_LAB verteilt;
+# damit bleibt die App auch bei Netzproblemen und GitHub-Ausfällen verwendbar.
+# Gleiche SMILES erscheinen im Dropdown nur einmal.
+WORKSHOP_EXAMPLES = [
+  {
+    "name": "Ethanol",
+    "smiles": "CCO",
+    "source": "MW-001"
+  },
+  {
+    "name": "Dimethylether",
+    "smiles": "COC",
+    "source": "MW-001"
+  },
+  {
+    "name": "Wasser",
+    "smiles": "O",
+    "source": "MW-002"
+  },
+  {
+    "name": "Schwefelwasserstoff",
+    "smiles": "S",
+    "source": "MW-002"
+  },
+  {
+    "name": "Propanal",
+    "smiles": "CCC=O",
+    "source": "MW-009"
+  },
+  {
+    "name": "Aceton",
+    "smiles": "CC(=O)C",
+    "source": "MW-009"
+  },
+  {
+    "name": "Kohlenstoffdioxid",
+    "smiles": "O=C=O",
+    "source": "MW-015"
+  },
+  {
+    "name": "Ammoniak",
+    "smiles": "N",
+    "source": "MW-015"
+  },
+  {
+    "name": "Methan",
+    "smiles": "C",
+    "source": "MW-015"
+  },
+  {
+    "name": "Cyclohexan",
+    "smiles": "C1CCCCC1",
+    "source": "MW-024"
+  },
+  {
+    "name": "Benzol",
+    "smiles": "c1ccccc1",
+    "source": "Frei"
+  },
+  {
+    "name": "Koffein",
+    "smiles": "Cn1cnc2n(C)c(=O)n(C)c(=O)c12",
+    "source": "Frei"
+  }
+]
+
+
 
 
 def calculate_geometry_measurement(mol, atom_indices, mode):
@@ -100,7 +170,7 @@ class MoleculeApp:
 
         self.examples = {
             "Koffein (Default, stabil)": {
-                "name": "Caffeine",
+                "name": "Koffein",
                 "smiles": "Cn1cnc2n(C)c(=O)n(C)c(=O)c12"
             },
             "Orforglipron (GLP-1RA Kandidat)": {
@@ -112,6 +182,20 @@ class MoleculeApp:
                 "smiles": "CCC1=C(C2=NC1=CC3=C(C4=C([N-]3)C(=C5[C@H]([C@@H](C(=N5)C=C6C(=C(C(=C2)[N-]6)C=C)C)C)CCC(=O)OC/C=C(\\C)/CCCC(C)CCCC(C)CCCC(C)C)[C@H](C4=O)C(=O)OC)C)C.[Mg+2]"
             }
         }
+        # Forschungswege + freie Moleküle der MOLEKÜL-WERKSTATT.
+        existing_smiles = {d["smiles"] for d in self.examples.values()}
+        for entry in WORKSHOP_EXAMPLES:
+            if entry["smiles"] not in existing_smiles:
+                self.examples[
+                    f"Werkstatt · {entry['name']} ({entry['source']})"
+                ] = {"name": entry["name"], "smiles": entry["smiles"]}
+                existing_smiles.add(entry["smiles"])
+        # Geeignetere Beispiele mit tatsächlich vielfältigen lokalen Minima.
+        self.examples.update({
+            "Konformer-Training · Butan": {"name": "Butan", "smiles": "CCCC"},
+            "Konformer-Training · n-Pentan": {"name": "n-Pentan", "smiles": "CCCCC"},
+            "Konformer-Training · n-Hexan": {"name": "n-Hexan", "smiles": "CCCCCC"}
+        })
 
         # Darstellung
         self.CARBON_SCHEME = "grayCarbon"
