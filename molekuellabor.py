@@ -872,7 +872,9 @@ class MoleculeApp:
         molH = Chem.AddHs(Chem.Mol(self.mol_2d))
         params = AllChem.ETKDGv3()
         params.randomSeed = 0xC0FFEE
-        params.pruneRmsThresh = 0.75  # Duplikate weg
+        params.pruneRmsThresh = -1.0  # keine Vorfilterung: Minima erst nach MMFF unterscheidbar
+        # Die ETKDG-Vorabfilterung könnte verschiedene Minima (u. a. Ringe)
+        # verwerfen, bevor wir überhaupt deren Energien vergleichen.
 
         num_raw = 60
         conf_ids = list(AllChem.EmbedMultipleConfs(molH, numConfs=num_raw, params=params))
@@ -904,19 +906,61 @@ class MoleculeApp:
             return self.log("❌ Konformer-Scoring fehlgeschlagen.")
 
         scored.sort(key=lambda x: x[0])
-        keep = scored[:10]
-        Emin = keep[0][0]
+        # Deduplicate AFTER minimisation, using symmetry-aware heavy-atom
+        # RMSD. The ten lowest-energy raw candidates can otherwise all
+        # collapse onto the same minimum (especially cyclohexane).
+        heavy_only = Chem.RemoveHs(molH)
+        distinct = []
+        for E, cid in scored:
+            already_seen = False
+            for previous_energy, previous_id in distinct:
+                try:
+                    # Work on the heavy-only copy; GetBestRMS may align
+                    # its probe conformer, not the original molH geometry.
+                    rms = rdMolAlign.GetBestRMS(
+                        heavy_only, heavy_only, prbId=cid, refId=previous_id,
+                        maxMatches=128
+                    )
+                    if rms < 0.30:
+                        already_seen = True
+                        break
+                except Exception:
+                    # Conservative fallback: aligned RMSD with fixed atom map.
+                    probe = Chem.Mol(heavy_only)
+                    rms = rdMolAlign.AlignMol(
+                        probe, heavy_only, prbCid=cid, refCid=previous_id
+                    )
+                    if rms < 0.30:
+                        already_seen = True
+                        break
+            if not already_seen:
+                distinct.append((E, cid))
+            if len(distinct) >= 10:
+                break
 
+        if not distinct:
+            return self.log("❌ Nach MMFF wurden keine Konformer-Minima gefunden.")
+        Emin = distinct[0][0]
         confs = []
-        for E, cid in keep:
+        for E, cid in distinct:
             m = Chem.Mol(molH)
             c = molH.GetConformer(cid)
             m.RemoveAllConformers()
             m.AddConformer(Chem.Conformer(c), assignId=True)
             confs.append({"mol": m, "E": float(E), "dE": float(E - Emin)})
-
         self.confs = confs
-        self.log(f"✅ Konformer fertig: {len(confs)} (Emin={Emin:.2f} kcal/mol)")
+        self.log(f"✅ ETKDG: {len(conf_ids)} Starts, {len(scored)} optimiert, "
+                 f"{len(confs)} geometrisch verschiedene Minima (Emin={Emin:.2f} kcal/mol)")
+        if len(confs) == 1:
+            self.log("ℹ️ Nur ein verschiedenes Energieminimum gefunden. "
+                     "Ein zweiter identischer Treffer wäre kein sinnvoller Vergleich.")
+        else:
+            self.log("ℹ️ Gleiche Energiewerte bedeuten nicht zwingend gleiche "
+                     "3D-Geometrie; die Auswahl ist RMSD-geprüft.")
+        if Chem.MolToSmiles(Chem.RemoveHs(Chem.Mol(self.mol_2d))) == "C1CCCCC1":
+            self.log("ℹ️ Bei Cyclohexan erfasst MOL_LAB nur gefundene Minima, "
+                     "nicht Wanne/Halbsessel als Übergangsreferenzen. "
+                     "Für die vier Lehrbuchformen: DIDACTIC V0.8.")
 
         opts = []
         for i, d in enumerate(confs, start=1):
@@ -958,13 +1002,20 @@ class MoleculeApp:
             self.log(f"👁️ Side-by-side: A={ia+1} (ΔE={self.confs[ia]['dE']:.2f}) | B={ib+1} (ΔE={self.confs[ib]['dE']:.2f})")
             return
 
-        # overlay
+        # Avoid displaying a falsely meaningful self-overlay.
+        if ia == ib:
+            self._render_mol_in_view(self.confs[ia]["mol"], self.out_3d,
+                                     height=860, stick_only=False)
+            self.log("ℹ️ Overlay A=B: identisches Auswahlobjekt. "
+                     "Wähle zwei verschiedene Konformer-Nummern.")
+            return
         mA = Chem.RemoveHs(Chem.Mol(self.confs[ia]["mol"]))
         mB = Chem.RemoveHs(Chem.Mol(self.confs[ib]["mol"]))
         try:
-            AllChem.AlignMol(mB, mA)
-        except:
-            pass
+            overlay_rms = float(AllChem.AlignMol(mB, mA))
+        except Exception as exc:
+            self.log("⚠️ Ausrichtung fehlgeschlagen: " + str(exc))
+            return
 
         v = py3Dmol.view(width='100%', height=860)
         v.addModel(self.mol_to_sdf_string(mA), "sdf")
@@ -979,7 +1030,9 @@ class MoleculeApp:
         with self.out_3d:
             v.show()
         self._viewer = v
-        self.log(f"👁️ Overlay: A={ia+1} (ΔE={self.confs[ia]['dE']:.2f}) | B={ib+1} (ΔE={self.confs[ib]['dE']:.2f})")
+        self.log(f"👁️ Overlay: A={ia+1} (ΔE={self.confs[ia]['dE']:.2f}) | "
+                 f"B={ib+1} (ΔE={self.confs[ib]['dE']:.2f}); "
+                 f"RMSD nach Ausrichtung (feste C-Atom-Zuordnung)={overlay_rms:.2f} Å")
 
 
     def render(self):
