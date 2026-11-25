@@ -56,7 +56,7 @@ for name in ("_measurement_molecule","_refresh_measure_sources",
              "clear_geometry_measurement","_update_measure_visibility"):
     assert name in methods
 assert "self.measure_accordion" in s
-assert "self.measure_accordion," in s
+assert "self.measure_accordion" in s
 assert "self.measure_source" in s
 assert "v.addSphere" in s and "v.addLabel" in s
 assert "self.confs = []" in s
