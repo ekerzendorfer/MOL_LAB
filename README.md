@@ -36,3 +36,13 @@ Die bisherige Einstellung `ETKDG.pruneRmsThresh = 0.75` verwarf möglicherweise 
 Bei Cyclohexan findet die normale Minimasuche insbesondere Sessel und ggf. Twist-Boat; **Wanne und Halbsessel** sind keine stabilen Minima und werden damit nicht automatisch gefunden. Für einen **gezielten Vergleich aller vier Ringformen** sollte DIDACTIC V0.8 verwendet werden. Zwei Ergebnisse mit gleicher Energie können räumlich unterschiedlich sein; identische Geometrien sollen aber nicht als verschiedene Treffer ausgegeben werden. Beim Overlay einer zweimal ausgewählten Konformer-Nummer wird kein irreführender Vergleich mehr angezeigt.
 
 **Entwicklungs-Notebook (lädt bewusst den Code dieses Branches):** https://colab.research.google.com/github/ekerzendorfer/MOL_LAB/blob/fix-konformere-postopt-rms/MOL_LAB.ipynb . Das stabile Notebook auf `main` bleibt bis zur Abnahme unverändert.
+
+## Entwicklungsstand V0.2 – Startformulare, Minima-Vielfalt und Geometriemessung (25.11.2026)
+
+**Start:** `MOL_LAB.ipynb` zeigt den Start standardmäßig als Colab-Formular (`cellView=form`). `MOL_LAB_MW024.ipynb` enthält bereits `START_SMILES="C1CCCCC1"`, `START_NAME="Cyclohexan"`; das MW-024-Entwicklungsnotebook verlinkt diese vorbereitete Colab-Datei. Das Notebook lädt weiterhin **denselben** Code aus `molekuellabor.py`.
+
+**Konformersuche:** steuerbare 60, 120 oder 240 ETKDG-Startgeometrien; nach MMFF/UFF-Minimierung RMSD-Deduplikation, optional bis +40 kcal/mol Energiefenster. Anzeige von maximal zehn unterschiedlichen, lokalen Minima: entweder energieaufsteigend oder über den Energiebereich verteilt. Das Energiefenster ist **keine** Suche nach Übergangszuständen. Für größere (>18 Schweratome) Moleküle maximal 120 Starts; ein zeitliches Laufzeitlimit ist weiterhin aktiv.
+
+**Geometrie messen:** einklappbares Panel unabhängig von der Konformersuche, Atomwahl mittels nummerierter Dropdowns, Entfernung (2 Atome, Å), Bindungswinkel (3 gebundene Atome, °), Torsionswinkel (4 aufeinanderfolgende gebundene Atome, °). Ausgewählte Atome werden in eigenem 3D-Fenster beschriftet und farbig markiert; H kann bei Bedarf angezeigt werden. Wahl der Quelle: aktuelles 3D-Modell oder vorhandener Konformer A/B. Die Funktion ist nicht an die 30-Schweratom-Grenze der Konformersuche gebunden (etwa Atorvastatin ist geometrisch messbar, wenn ein 3D-Modell vorliegt).
+
+**Bewusst verschoben:** separate manuelle Mausrotation der beiden Overlay-Modelle und direkte Atomwahl durch Anklicken der 3D-Grafik. Die Dropdown-Auswahl ist zunächst die robuste Colab-Version. Noch nicht auf `main` veröffentlicht; Browser-/Colab-Tests folgen nach automatischer Regression.

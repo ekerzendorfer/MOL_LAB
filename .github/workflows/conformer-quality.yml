@@ -17,3 +17,5 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check rdkit
       - name: Check postoptimization uniqueness, cyclohexane and molecular examples
         run: python3 tests/conformer_quality.py
+      - name: Validate 3D geometry measurement and large molecules
+        run: python3 tests/geometry_measurement.py

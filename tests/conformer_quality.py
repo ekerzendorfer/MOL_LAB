@@ -29,6 +29,10 @@ class Dummy:
         self.msg=[]
         self.confs=[]
         self.view_count=0
+        self.conf_sampling=SimpleNamespace(value=120)
+        self.conf_energy_window=SimpleNamespace(value=15.0)
+        self.conf_selection=SimpleNamespace(value="spread")
+        self.conf_summary=SimpleNamespace(value="")
     def _conformer_eligibility(self,m):
         return True,[],{"heavy_atoms":m.GetNumHeavyAtoms()}
     def log(self,msg):
@@ -42,7 +46,7 @@ def run(smiles):
     assert 2 <= len(dummy.confs) <= 10,(smiles,dummy.msg)
     assert dummy.view_count==1
     assert dummy.dd_conf_a.value==0 and dummy.dd_conf_b.value==1
-    assert any("geometrisch verschiedene Minima" in m for m in dummy.msg)
+    assert any("verschiedene Minima erkannt" in m for m in dummy.msg)
     assert all(d["dE"]>=0 for d in dummy.confs)
     assert all(math.isfinite(d["E"]) for d in dummy.confs)
     assert all(d["E"]==d["E"] for d in dummy.confs)
@@ -68,11 +72,39 @@ assert max(x["dE"] for x in c.confs)>3.0
 run("CCCC")
 run("ClCCCl")
 
+
+# Higher-energy *minima* may be retained with a wider window and diverse mode.
+test=Dummy("CCCCCC")
+test.conf_energy_window.value=35.0
+test.conf_sampling.value=240
+test.conf_selection.value="spread"
+compute(test,None)
+assert test.confs and len(test.confs)<=10
+assert "Höhere Energien" in test.conf_summary.value
+assert all(c["dE"] <= 35.01 for c in test.confs)
+assert all(test.confs[i]["E"]<=test.confs[i+1]["E"] for i in range(len(test.confs)-1))
+print("Hexan broad min search:",len(test.confs),
+      [round(c["dE"],2) for c in test.confs])
+
 notebook=json.loads((root/"MOL_LAB.ipynb").read_text(encoding="utf-8"))
 code="".join(notebook["cells"][1]["source"])
 assert 'try_download("fix-konformere-postopt-rms")' in code
 assert "params.pruneRmsThresh = -1.0" in source
+assert "self.conf_sampling = widgets.Dropdown" in source
+assert "self.conf_energy_window = widgets.FloatSlider" in source
+assert "self.conf_selection = widgets.Dropdown" in source
 assert "GetBestRMS" in source
 assert "if ia == ib:" in source
+assert notebook["cells"][1]["metadata"]["cellView"]=="form"
+
 assert "RMSD nach Ausrichtung" in source
 print("MOL_LAB: post-minimization RMSD, non-duplicate energy candidates and branch loading OK")
+
+# MW-024 launcher: form only, preset SMILES/name, shared code loader on test branch.
+mw=json.loads((root/"MOL_LAB_MW024.ipynb").read_text(encoding="utf-8"))
+assert mw["cells"][1]["metadata"]["cellView"]=="form"
+launch="".join(mw["cells"][1]["source"])
+assert 'START_SMILES = "C1CCCCC1"' in launch
+assert 'START_NAME = "Cyclohexan"' in launch
+assert 'try_download("fix-konformere-postopt-rms")' in launch
+assert 'display-mode: "form"' in launch
