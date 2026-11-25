@@ -35,7 +35,7 @@ Die bisherige Einstellung `ETKDG.pruneRmsThresh = 0.75` verwarf möglicherweise 
 
 Bei Cyclohexan findet die normale Minimasuche insbesondere Sessel und ggf. Twist-Boat; **Wanne und Halbsessel** sind keine stabilen Minima und werden damit nicht automatisch gefunden. Für einen **gezielten Vergleich aller vier Ringformen** sollte DIDACTIC V0.8 verwendet werden. Zwei Ergebnisse mit gleicher Energie können räumlich unterschiedlich sein; identische Geometrien sollen aber nicht als verschiedene Treffer ausgegeben werden. Beim Overlay einer zweimal ausgewählten Konformer-Nummer wird kein irreführender Vergleich mehr angezeigt.
 
-**Entwicklungs-Notebook (lädt bewusst den Code dieses Branches):** https://colab.research.google.com/github/ekerzendorfer/MOL_LAB/blob/fix-konformere-postopt-rms/MOL_LAB.ipynb . Das stabile Notebook auf `main` bleibt bis zur Abnahme unverändert.
+**Stabile Colab-Version auf `main`:** https://colab.research.google.com/github/ekerzendorfer/MOL_LAB/blob/main/MOL_LAB.ipynb . Der Entwicklungszweig bleibt als historische Referenz erhalten.
 
 ## Entwicklungsstand V0.2 – Startformulare, Minima-Vielfalt und Geometriemessung (25.11.2026)
 
@@ -45,7 +45,7 @@ Bei Cyclohexan findet die normale Minimasuche insbesondere Sessel und ggf. Twist
 
 **Geometrie messen:** einklappbares Panel unabhängig von der Konformersuche, Atomwahl mittels nummerierter Dropdowns, Entfernung (2 Atome, Å), Bindungswinkel (3 gebundene Atome, °), Torsionswinkel (4 aufeinanderfolgende gebundene Atome, °). Ausgewählte Atome werden in eigenem 3D-Fenster beschriftet und farbig markiert; H kann bei Bedarf angezeigt werden. Wahl der Quelle: aktuelles 3D-Modell oder vorhandener Konformer A/B. Die Funktion ist nicht an die 30-Schweratom-Grenze der Konformersuche gebunden (etwa Atorvastatin ist geometrisch messbar, wenn ein 3D-Modell vorliegt).
 
-**Bewusst verschoben:** separate manuelle Mausrotation der beiden Overlay-Modelle und direkte Atomwahl durch Anklicken der 3D-Grafik. Die Dropdown-Auswahl ist zunächst die robuste Colab-Version. Noch nicht auf `main` veröffentlicht; Browser-/Colab-Tests folgen nach automatischer Regression.
+**Bewusst verschoben:** separate manuelle Mausrotation der beiden Overlay-Modelle und direkte Atomwahl durch Anklicken der 3D-Grafik. Die Dropdown-Auswahl ist die robuste Colab-Version; die visuelle Browserprüfung ergänzt die automatisierten Tests.
 
 ### Werkstatt-Moleküle und Konformerfamilien (25.11.2026)
 
@@ -56,3 +56,9 @@ Für umfangreichere Konformeruntersuchungen wurden **Butan, n-Pentan und n-Hexan
 Der Auswahlmodus `Vielfalt über das Energiefenster` verteilt die **maximal zehn ausgewählten Minima nach ihrer Energie über den gefundenen Bereich**, falls **mehr als zehn** verschiedene Minima gefunden wurden. Bei höchstens zehn wird jedes gefundene Minimum bereits angezeigt; ein Moduswechsel oder eine große Energieobergrenze kann dann **keine zusätzlichen Minima erfinden**. Die Oberfläche gibt in diesem Fall einen eigenen Hinweis aus. Wanne und Halbsessel werden nur im geführten DIDACTIC-Vergleich als nicht-minimale Referenzgeometrien behandelt.
 
 Beim Start mit einem vorbereiteten Colab-Notebook (insbesondere MW-024) wird nicht nur SMILES/Name, sondern auch das passende Beispiel im Dropdown ausgewählt.
+
+### Freigabe auf main · 25. November 2026
+
+Die erweiterten Konformermodi, der Werkstatt-Beispielkatalog, das vorkonfigurierte MW-024-Startnotebook und die interaktive RDKit-Geometriemessung sind nach Nutzer-Evaluation auf `main` freigegeben. **Beide Colab-Startnotebooks laden ausdrücklich `molekuellabor.py` aus `main`**; keine Abhängigkeit von einem dauerhaft existierenden Entwicklungsbranch.
+
+Bei Ethan und Propan erzeugt die Minimierung nur die energieärmsten Konformationsfamilien: Die ekliptischen Formen liegen entlang einer Torsions-Rotationskoordinate auf Energiebarrieren bzw. in nichtminimierten Regionen. Sie können nur über **gezielte Torsionsscans / eingeschränkte Referenzgeometrien** studiert werden. Diese Erweiterung ist für eine spätere Entwicklungsrunde vorgesehen, nicht als weiteres Ergebnis der aktuellen freien Minimasuche. Die bewusst getrennte DIDACTIC-Anwendung enthält für Cyclohexan weiterhin die vier Kurationsformen.

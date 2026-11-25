@@ -113,7 +113,8 @@ print("Hexan: energy vs spread selects different ranges:",
 
 notebook=json.loads((root/"MOL_LAB.ipynb").read_text(encoding="utf-8"))
 code="".join(notebook["cells"][1]["source"])
-assert 'try_download("fix-konformere-postopt-rms")' in code
+assert 'try_download("main")' in code
+assert 'try_download("fix-konformere-postopt-rms")' not in code
 assert "params.pruneRmsThresh = -1.0" in source
 assert "self.conf_sampling = widgets.Dropdown" in source
 assert "self.conf_energy_window = widgets.FloatSlider" in source
@@ -131,5 +132,6 @@ assert mw["cells"][1]["metadata"]["cellView"]=="form"
 launch="".join(mw["cells"][1]["source"])
 assert 'START_SMILES = "C1CCCCC1"' in launch
 assert 'START_NAME = "Cyclohexan"' in launch
-assert 'try_download("fix-konformere-postopt-rms")' in launch
+assert 'try_download("main")' in launch
+assert 'try_download("fix-konformere-postopt-rms")' not in launch
 assert 'display-mode: "form"' in launch
