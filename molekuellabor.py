@@ -45,6 +45,50 @@ from IPython.display import display, SVG
 from google.colab import files
 
 
+
+def calculate_geometry_measurement(mol, atom_indices, mode):
+    """RDKit 3D geometry from numbered atoms (0-based internals, 1-based UI).
+
+    Distances may span any two atoms. A bond angle/dihedral is defined
+    here only for consecutive bonded atoms; that constraint protects
+    learners from ambiguous measurements of arbitrary atom quartets.
+    """
+    amount = {"distance": 2, "angle": 3, "torsion": 4}
+    if mode not in amount:
+        raise ValueError("Bitte Abstand, Winkel oder Torsion auswählen.")
+    if mol is None or mol.GetNumConformers() == 0:
+        raise ValueError("Zuerst eine 3D-Geometrie erzeugen oder einen Konformer auswählen.")
+    ids = tuple(int(x) for x in atom_indices)
+    if len(ids) != amount[mode] or len(set(ids)) != len(ids):
+        raise ValueError(f"Bitte {amount[mode]} unterschiedliche Atome auswählen.")
+    if any(i < 0 or i >= mol.GetNumAtoms() for i in ids):
+        raise ValueError("Mindestens eine Atomnummer liegt außerhalb des Moleküls.")
+    conf = mol.GetConformer()
+    if not conf.Is3D():
+        raise ValueError("Diese Struktur enthält keine dreidimensionalen Koordinaten.")
+    if mode in ("angle", "torsion"):
+        if any(mol.GetBondBetweenAtoms(a, b) is None
+               for a, b in zip(ids, ids[1:])):
+            raise ValueError(
+                "Für Bindungswinkel und Torsionen aufeinanderfolgende, "
+                "miteinander gebundene Atome auswählen."
+            )
+    if mode == "distance":
+        value = rdMolTransforms.GetBondLength(conf, *ids)
+        unit, label = "Å", "Abstand"
+    elif mode == "angle":
+        value = rdMolTransforms.GetAngleDeg(conf, *ids)
+        unit, label = "°", "Bindungswinkel"
+    else:
+        value = rdMolTransforms.GetDihedralDeg(conf, *ids)
+        unit, label = "°", "Torsionswinkel"
+    import math
+    if not math.isfinite(value):
+        raise ValueError("Die Geometrie ist für diese Atomwahl nicht auswertbar.")
+    return {"mode": mode, "value": float(value), "unit": unit,
+            "indices": ids, "label": label}
+
+
 class MoleculeApp:
     def __init__(self):
         self.mol = None
@@ -187,6 +231,71 @@ class MoleculeApp:
             self.dd_conf_a, self.dd_conf_b, self.conf_view_mode
         ], layout=Layout(width='98%', display='none'))
 
+        # --- Geometrie-Messlabor: works with a single optimized 3D model,
+        # also for large molecules excluded from conformer enumeration. ---
+        self.measure_source = widgets.Dropdown(
+            options=[("Aktuelle 3D-Geometrie", "current")],
+            value="current", description="3D-Quelle:",
+            layout=Layout(width='98%'), style=style
+        )
+        self.measure_mode = widgets.ToggleButtons(
+            options=[("Abstand", "distance"),
+                     ("Bindungswinkel", "angle"),
+                     ("Torsion", "torsion")],
+            value="distance", description="Messart:",
+            style=style, layout=Layout(width='98%')
+        )
+        self.measure_atom_boxes = [
+            widgets.Dropdown(
+                options=[], description=f"Atom {i+1}:",
+                layout=Layout(width='98%'), style=style
+            ) for i in range(4)
+        ]
+        self.measure_show_h = widgets.Checkbox(
+            value=False, description="Alle H-Atome im Messmodell anzeigen",
+            indent=False, layout=Layout(width='98%')
+        )
+        self.measure_btn = widgets.Button(
+            description="Geometrie messen", icon='ruler',
+            button_style='info', layout=Layout(width='98%')
+        )
+        self.measure_clear_btn = widgets.Button(
+            description="Messansicht zurücksetzen", icon='refresh',
+            layout=Layout(width='98%')
+        )
+        self.measure_result = widgets.HTML(
+            "<small>Erst 3D erzeugen, dann die Messart und "
+            "die nummerierten Atome auswählen.</small>"
+        )
+        self.out_measure = widgets.Output(
+            layout={'border':'1px solid #bccbd3','min_height':'330px',
+                    'padding':'5px'}
+        )
+        self.measure_panel = widgets.VBox([
+            widgets.HTML("<small>Atomnummern sind in den Dropdowns 1-basiert; "
+                         "nur gewählte Atome werden im 3D-Modell markiert. "
+                         "Torsion: vier aufeinanderfolgende, "
+                         "miteinander gebundene Atome.</small>"),
+            self.measure_source, self.measure_mode,
+            *self.measure_atom_boxes, self.measure_show_h,
+            self.measure_btn, self.measure_clear_btn,
+            self.measure_result, self.out_measure
+        ], layout=Layout(width='98%'))
+        self.measure_accordion = widgets.Accordion(
+            children=[self.measure_panel],
+            selected_index=None, layout=Layout(width='98%')
+        )
+        self.measure_accordion.set_title(
+            0, "Geometrie messen · Abstand / Winkel / Torsion"
+        )
+        self.measure_mode.observe(self._update_measure_visibility,
+                                  names='value')
+        self.measure_source.observe(self._refresh_measure_atoms,
+                                    names='value')
+        self.measure_btn.on_click(self.perform_geometry_measurement)
+        self.measure_clear_btn.on_click(self.clear_geometry_measurement)
+        self._update_measure_visibility()
+
         # Exporte + Screenshots
         self.btn_sdf = widgets.Button(description="SDF Export", icon='download', layout=Layout(width='48%'))
         self.btn_pdb = widgets.Button(description="PDB Export", icon='download', layout=Layout(width='48%'))
@@ -305,6 +414,126 @@ class MoleculeApp:
         except:
             return None, "none"
 
+    # ---------- Geometrie-Messlabor ----------
+
+    def _update_measure_visibility(self, change=None):
+        mode = getattr(self.measure_mode, "value", "distance")
+        count = {"distance":2, "angle":3, "torsion":4}.get(mode, 2)
+        for i, item in enumerate(self.measure_atom_boxes):
+            item.layout.display = 'block' if i < count else 'none'
+
+    def _measurement_molecule(self):
+        source = self.measure_source.value
+        if source == "current":
+            mol = self.mol
+        else:
+            i = self.dd_conf_a.value if source == "conformer_a" else self.dd_conf_b.value
+            mol = self.confs[int(i)]["mol"] if (i is not None and
+                   0 <= int(i) < len(self.confs)) else None
+        if mol is None or mol.GetNumConformers() == 0:
+            return None
+        return Chem.Mol(mol)
+
+    def _refresh_measure_sources(self):
+        current = self.measure_source.value
+        options = [("Aktuelle 3D-Geometrie", "current")]
+        if getattr(self, "confs", None):
+            options += [
+                ("Ausgewählter Konformer A", "conformer_a"),
+                ("Ausgewählter Konformer B", "conformer_b")
+            ]
+        self.measure_source.options = options
+        self.measure_source.value = (current if current in
+                                     [v for _,v in options] else "current")
+        self._refresh_measure_atoms()
+
+    def _refresh_measure_atoms(self, change=None):
+        mol = self._measurement_molecule()
+        if mol is None:
+            for box in self.measure_atom_boxes:
+                box.options = []
+            self.measure_result.value = (
+                "<small>Bitte zuerst die 3D-Geometrie erzeugen "
+                "oder einen berechneten Konformer als Quelle auswählen.</small>"
+            )
+            return
+        options = []
+        for atom in mol.GetAtoms():
+            idx = atom.GetIdx()
+            neighbors = ", ".join(
+                str(a.GetIdx()+1) for a in atom.GetNeighbors()
+            )
+            options.append((f"{idx+1} · {atom.GetSymbol()}"
+                            f" (gebunden an {neighbors or '–'})",idx))
+        for i,box in enumerate(self.measure_atom_boxes):
+            old = box.value
+            box.options = options
+            box.value = old if old is not None and 0 <= old < len(options) else min(i,len(options)-1)
+        self.measure_result.value = (
+            f"<small>{mol.GetNumAtoms()} Atome wählbar "
+            "(einschließlich H). Atomnummern entsprechen der "
+            "momentanen 3D-Struktur; bei anderer Quelle erneut prüfen.</small>"
+        )
+
+    def clear_geometry_measurement(self, _=None):
+        self.out_measure.clear_output()
+        self.measure_result.value = (
+            "<small>Messansicht zurückgesetzt. "
+            "Wähle Atome und klicke auf Geometrie messen.</small>"
+        )
+
+    def perform_geometry_measurement(self, _=None):
+        mol = self._measurement_molecule()
+        mode = self.measure_mode.value
+        n = {"distance":2,"angle":3,"torsion":4}[mode]
+        ids = [box.value for box in self.measure_atom_boxes[:n]]
+        try:
+            if any(idx is None for idx in ids):
+                raise ValueError("Bitte zuerst ein 3D-Modell erzeugen.")
+            result = calculate_geometry_measurement(mol, ids, mode)
+        except Exception as exc:
+            self.measure_result.value = (
+                "<span style='color:#9b2c2c;'><b>Messung nicht möglich:</b> "
+                + str(exc).replace("<","&lt;") + "</span>"
+            )
+            return
+        types = " – ".join(
+            f"{mol.GetAtomWithIdx(i).GetSymbol()}{i+1}" for i in ids
+        )
+        self.measure_result.value = (
+            f"<b>{result['label']}:</b> {types} = "
+            f"<b>{result['value']:.2f} {result['unit']}</b> "
+            "<small>(RDKit, aktuelle 3D-Koordinaten)</small>"
+        )
+        self.out_measure.clear_output(wait=True)
+        v = py3Dmol.view(width="100%", height=370)
+        show_all_h = bool(self.measure_show_h.value)
+        has_selected_h = any(mol.GetAtomWithIdx(i).GetAtomicNum()==1
+                             for i in ids)
+        m_view = mol if show_all_h or has_selected_h else Chem.RemoveHs(mol)
+        v.addModel(self.mol_to_sdf_string(m_view), "sdf")
+        v.setStyle({'stick': {'radius':0.14,'colorscheme':'grayCarbon'},
+                    'sphere': {'scale':0.23,'colorscheme':'Jmol'}})
+        conf=mol.GetConformer()
+        colors=["#e85c4a","#338abb","#299367","#ae65a3"]
+        positions=[]
+        for rank,idx in enumerate(ids):
+            p=conf.GetAtomPosition(idx)
+            point={"x":float(p.x),"y":float(p.y),"z":float(p.z)}
+            positions.append(point)
+            v.addSphere({"center":point,"radius":0.25,"color":colors[rank]})
+            v.addLabel(f"{idx+1} {mol.GetAtomWithIdx(idx).GetSymbol()}",
+                       {"position":point,"fontSize":12,
+                        "fontColor":"white","backgroundColor":colors[rank],
+                        "backgroundOpacity":0.85,"inFront":True})
+        if mode == "distance":
+            v.addLine({"start":positions[0],"end":positions[1],
+                       "color":"#de9a36"})
+        v.zoomTo()
+        v.setBackgroundColor("white")
+        with self.out_measure:
+            v.show()
+
     # ---------- step 1 ----------
 
     def load_2d(self, b):
@@ -323,6 +552,12 @@ class MoleculeApp:
         m.SetProp("_Name", self.input_name.value)
         self.mol_2d = Chem.Mol(m)
         self.mol = None
+        # Prevent measurement or comparison of stale molecules after a reload.
+        self.mol_mmff = None
+        self.mol_xtb = None
+        self.confs = []
+        self.clear_geometry_measurement()
+        self._refresh_measure_sources()
 
         self.out_2d.clear_output()
         self.last_2d_svg = self.draw_2d_svg(self.mol_2d)
@@ -452,6 +687,7 @@ class MoleculeApp:
         self._viewer = v
         with self.out_3d:
             v.show()
+        self._refresh_measure_sources()
 
     # ---------- step 4 ----------
 
@@ -1055,6 +1291,7 @@ class MoleculeApp:
         self.conf_view_mode.value = "single"
 
         self.show_conformer_view(None)
+        self._refresh_measure_sources()
 
     def show_conformer_view(self, change):
         if not getattr(self, "confs", []):
@@ -1139,6 +1376,7 @@ class MoleculeApp:
             self.btn_xtb,
             self.btn_cmp,
             self.conf_panel,
+            self.measure_accordion,
             widgets.HTML("<hr>"),
             widgets.HTML("<b>2D-Struktur (bleibt sichtbar)</b>"),
             self.out_2d,
