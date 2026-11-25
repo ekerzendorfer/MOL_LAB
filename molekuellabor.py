@@ -1390,7 +1390,6 @@ class MoleculeApp:
             self.btn_xtb,
             self.btn_cmp,
             self.conf_panel,
-            self.measure_accordion,
             widgets.HTML("<hr>"),
             widgets.HTML("<b>2D-Struktur (bleibt sichtbar)</b>"),
             self.out_2d,
@@ -1403,7 +1402,8 @@ class MoleculeApp:
 
         right = widgets.VBox([
             widgets.HTML("<b>3D / Surface</b>"),
-            self.out_3d
+            self.out_3d,
+            self.measure_accordion
         ], layout=Layout(width='70%', padding='10px'))
 
         display(widgets.HBox([left, right]))
